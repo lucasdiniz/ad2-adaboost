@@ -1,0 +1,26 @@
+"0","train_data = read_csv('dados/train.csv')
+"
+"2","Parsed with column specification:
+cols(
+  .default = col_character(),
+  ID = col_double(),
+  numero_cadidato = col_integer(),
+  quantidade_doacoes = col_integer(),
+  quantidade_doadores = col_integer(),
+  total_receita = col_double(),
+  media_receita = col_double(),
+  recursos_de_outros_candidatos.comites = col_double(),
+  recursos_de_partidos = col_double(),
+  recursos_de_pessoas_físicas = col_double(),
+  recursos_de_pessoas_juridicas = col_double(),
+  recursos_proprios = col_double(),
+  quantidade_despesas = col_integer(),
+  quantidade_fornecedores = col_integer(),
+  total_despesa = col_double(),
+  media_despesa = col_double(),
+  idade = col_integer(),
+  despesa_max_campanha = col_integer()
+)
+"
+"2","See spec(...) for full column specifications.
+"

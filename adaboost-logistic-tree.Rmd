@@ -1,0 +1,19 @@
+---
+title: "adaboost-logistic-tree"
+author: "Lucas Diniz"
+date: "26 de fevereiro de 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library('tidyverse')
+library('caret')
+library('ada')
+
+train_data = read_csv('dados/train.csv')
+View(train_data)
+
+model_logistic <- glm('')
+
+```
