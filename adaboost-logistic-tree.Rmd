@@ -9,11 +9,52 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 library('tidyverse')
 library('caret')
+library('randomForest')
+library('rpart')
 library('ada')
+library('e1071')
 
-train_data = read_csv('dados/train.csv')
+train_data = 
+  read_csv('dados/train.csv') %>%
+  mutate(situacao_final = factor(situacao_final)) 
+
+
+test_data = 
+  read_csv('dados/test.csv')
+
+
 View(train_data)
 
-model_logistic <- glm('')
+
+train_control<- trainControl(method="cv", number=10, sampling = "up")
+
+model.tree <- caret::train(situacao_final ~ total_despesa + quantidade_doadores + partido * UF, 
+                       data = train_data, 
+                       trControl = train_control, 
+                       maxdepth = 30,
+                       tuneLength = 10,
+                       metric = "Accuracy",
+                       method = "rpart")
+
+model.tree
+
+model_logistic <- glm(data = train_data, situacao_final ~ ., family = binomial("logit"))
+summary(model_logistic)
 
 ```
+
+
+```{r}
+submit_kaggle <- test_data %>% 
+  select(ID) %>% 
+  mutate(prediction = predict(model.tree, newdata = test_data))
+
+write_csv(submit_kaggle, "result.csv")
+
+
+```
+
+
+
+
+
