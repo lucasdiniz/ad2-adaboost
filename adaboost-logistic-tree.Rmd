@@ -89,9 +89,12 @@ Adaboost
 ```{r}
 train_control<- trainControl(method="cv", number=1,sampling = "up", search = "random")
 
+tuneGrid <- expand.grid(nIter = seq(100, 200, by = 20), method = c("Real adaboost", "Adaboost.M1"))
+
 model.ada <- caret::train(
-                       x = train_data[!colnames(train_data) %in% "situacao_final"], 
+                       x = train_data[!colnames(train_data) %in% c("situacao_final")], 
                        y = train_data$situacao_final,
+                       tuneGrid = tuneGrid,
                        metric = "Accuracy",
                        method = "adaboost")
 
