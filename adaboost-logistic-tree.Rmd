@@ -16,38 +16,98 @@ library('e1071')
 
 train_data = 
   read_csv('dados/train.csv') %>%
-  mutate(situacao_final = factor(situacao_final)) 
+  mutate(situacao_final = factor(situacao_final), partido = factor(partido), UF = factor(UF), sexo = factor(sexo), grau = factor(grau), estado_civil = factor(estado_civil), descricao_cor_raca = factor(descricao_cor_raca)) %>%
+  select(-nome, -ID, -numero_cadidato, -setor_economico_receita, -setor_economico_despesa, -descricao_ocupacao) %>% mutate(iter_raca_sexo = paste(as.character(descricao_cor_raca), as.character(sexo))) %>% mutate(iter_raca_sexo = as.factor(iter_raca_sexo))
+
+validation_data = train_data[2001:nrow(train_data),]
+train_data = train_data[1:2000,]
 
 
 test_data = 
-  read_csv('dados/test.csv')
+  read_csv('dados/test.csv')%>% mutate(iter_raca_sexo = paste(as.character(descricao_cor_raca), as.character(sexo))) %>% mutate(iter_raca_sexo = as.factor(iter_raca_sexo))
 
 
 View(train_data)
+```
 
 
-train_control<- trainControl(method="cv", number=10, sampling = "up")
+Árvore de decisão
 
-model.tree <- caret::train(situacao_final ~ total_despesa + quantidade_doadores + partido * UF, 
-                       data = train_data, 
+```{r}
+
+#bestmtry <- tuneRF(train_data %>% select(-situacao_final), train_data$situacao_final, stepFactor=1.5, improve=1e-5, ntree=1500)
+
+train_control<- trainControl(method="repeatedcv", number=10, repeats=5, sampling = "down", search = "random")
+
+tuneGrid = expand.grid(cp = seq(0,0.01, by = 0.0005))
+
+model.tree <- caret::train(situacao_final ~., 
+                       data = train_data,
                        trControl = train_control, 
-                       maxdepth = 30,
-                       tuneLength = 10,
+                       maxdepth = 20,
+                       tuneGrid = tuneGrid,
                        metric = "Accuracy",
                        method = "rpart")
 
+plot(model.tree)
 model.tree
 
-model_logistic <- glm(data = train_data, situacao_final ~ ., family = binomial("logit"))
-summary(model_logistic)
+predicted <- validation_data %>% mutate(prediction = predict(model.tree, validation_data))
 
+predicted %>% summarise(acc = sum(prediction == situacao_final)/nrow(predicted))
+
+
+```
+
+
+Regressão Logística
+
+```{r}
+
+
+train_control<- trainControl(method="repeatedcv", number=10, repeats=3, sampling = "up", search = "random")
+
+model.glm <- caret::train(situacao_final ~., 
+                       data = train_data, 
+                       trControl = train_control, 
+                       tuneLength = 10,
+                       metric = "Accuracy",
+                       method = "glm")
+
+plot(model.glm)
+model.glm
+
+
+predicted <- validation_data %>% mutate(prediction = predict(model.glm, validation_data))
+predicted %>% summarise(acc = sum(prediction == situacao_final)/nrow(predicted))
+
+```
+
+Adaboost
+
+
+```{r}
+train_control<- trainControl(method="cv", number=1,sampling = "up", search = "random")
+
+model.ada <- caret::train(
+                       x = train_data[!colnames(train_data) %in% "situacao_final"], 
+                       y = train_data$situacao_final,
+                       metric = "Accuracy",
+                       method = "adaboost")
+
+plot(model.ada)
+model.ada
+
+
+predicted <- validation_data %>% mutate(prediction = predict(model.ada, validation_data))
+predicted %>% summarise(acc = sum(prediction == situacao_final)/nrow(predicted))
 ```
 
 
 ```{r}
 submit_kaggle <- test_data %>% 
   select(ID) %>% 
-  mutate(prediction = predict(model.tree, newdata = test_data))
+  mutate(prediction = predict(model.ada, newdata = test_data))
 
 write_csv(submit_kaggle, "result.csv")
 
