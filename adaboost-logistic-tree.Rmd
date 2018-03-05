@@ -2,8 +2,17 @@
 title: "adaboost-logistic-tree"
 author: "Lucas Diniz"
 date: "26 de fevereiro de 2018"
-output: html_document
+output: 
+  html_document:
+    toc: true
+    toc_float: true
 ---
+
+<h2>Predição de Deputados Eleitos 2014</h2>
+
+Neste relatório iremos treinar classificadores binários para tentar prever quais foram os deputados eleitos nas eleições de 2014.
+
+Primeiro realizaremos a importação de bibliotecas e a leitura e filtragem dos dados. O pacote caret já realiza a validação cruzada para nós, porém, como temos um bom volume de dados, a divisão dos dados foi feita manualmente para facilitar a validação do modelo final. 
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -17,27 +26,67 @@ library('e1071')
 train_data = 
   read_csv('dados/train.csv') %>%
   mutate(situacao_final = factor(situacao_final), partido = factor(partido), UF = factor(UF), sexo = factor(sexo), grau = factor(grau), estado_civil = factor(estado_civil), descricao_cor_raca = factor(descricao_cor_raca)) %>%
-  select(-nome, -ID, -numero_cadidato, -setor_economico_receita, -setor_economico_despesa, -descricao_ocupacao) %>% mutate(iter_raca_sexo = paste(as.character(descricao_cor_raca), as.character(sexo))) %>% mutate(iter_raca_sexo = as.factor(iter_raca_sexo))
+  select(-nome, -ID, -numero_cadidato, -setor_economico_receita, -setor_economico_despesa, -descricao_ocupacao) %>% mutate(iter_raca_sexo = paste(as.character(descricao_cor_raca), as.character(sexo))) %>% mutate(iter_raca_sexo = as.factor(iter_raca_sexo)) %>% mutate(mais.de.40 = idade > 40, mais.de.30 = idade > 30, mais.de.50 = idade > 50, mais.de.60 = idade > 60) 
 
 validation_data = train_data[2001:nrow(train_data),]
 train_data = train_data[1:2000,]
 
 
 test_data = 
-  read_csv('dados/test.csv')%>% mutate(iter_raca_sexo = paste(as.character(descricao_cor_raca), as.character(sexo))) %>% mutate(iter_raca_sexo = as.factor(iter_raca_sexo))
+  read_csv('dados/test.csv')%>% mutate(iter_raca_sexo = paste(as.character(descricao_cor_raca), as.character(sexo))) %>% mutate(iter_raca_sexo = as.factor(iter_raca_sexo)) %>% mutate(mais.de.40 = idade > 40, mais.de.30 = idade > 30, mais.de.50 = idade > 50, mais.de.60 = idade > 60) 
 
+measurePrecisionRecall <- function(predict, actual_labels){
+  precision <- sum(predict & actual_labels) / sum(predict)
+  recall <- sum(predict & actual_labels) / sum(actual_labels)
+  fmeasure <- 2 * precision * recall / (precision + recall)
 
-View(train_data)
+  cat('precision:  ')
+  cat(precision * 100)
+  cat('%')
+  cat('\n')
+
+  cat('recall:     ')
+  cat(recall * 100)
+  cat('%')
+  cat('\n')
+
+  cat('f-measure:  ')
+  cat(fmeasure * 100)
+  cat('%')
+  cat('\n')
+}
+
 ```
 
+<h3> Desbalencamento das classes nos dados de treino </h3>
 
-Árvore de decisão
+
 
 ```{r}
 
-#bestmtry <- tuneRF(train_data %>% select(-situacao_final), train_data$situacao_final, stepFactor=1.5, improve=1e-5, ntree=1500)
+train_data %>% summarise(porc.eleitos = sum(situacao_final == 'eleito')/nrow(.) * 100, porc.nao.eleitos = sum(situacao_final == 'nao_eleito')/nrow(.) * 100)
 
-train_control<- trainControl(method="repeatedcv", number=10, repeats=5, sampling = "down", search = "random")
+```
+
+Sim, temos que apenas 10.4% das observações nos dados de treino são de candidatos que foram eleitos, enquanto 89.6% das observações são de candidatos não eleitos.
+
+Em um modelo de regressão logística por exemplo isso pode fazer com que o classificador simplesmente ignore uma das classes e considere todas as observações como pertecentes a apenas uma das classes pois isso elevaria bastante o fit do modelo visto que grande parte dos dados de treino realmente são de apenas uma das classes.
+
+Para resolver esse problema utilizaremos o parâmetro <i>sampling</i> do caret que irá realizar o balanceamento dos dados.
+
+
+<h3> Treinando os classificadores </h3>
+
+
+<h4>Árvore de decisão<h4>
+
+Foi treinado um modelo de árvore de decisão utilizando o pacote caret para realizar validação cruzada dos modelos obtidos. O modelo foi obtido utilizando todas as variáveis disponíveis (além das features adicionais que foram criadas) e utilizando também o parâmetro "search" no trainControl do caret que irá realizar uma busca aleatória pelas melhores features a serem utilizadas pelo classificador.
+
+Vejamos agora um gráfico do modelo cruzando a acurácia dos modelos obtidos via bootstraping pelo parâmetro de complexidade da árvore de decisão:
+
+```{r}
+
+train_control<- trainControl(method="repeatedcv", number=10, repeats=5, sampling = "up", search = "random")
 
 tuneGrid = expand.grid(cp = seq(0,0.01, by = 0.0005))
 
@@ -50,20 +99,52 @@ model.tree <- caret::train(situacao_final ~.,
                        method = "rpart")
 
 plot(model.tree)
-model.tree
-
-predicted <- validation_data %>% mutate(prediction = predict(model.tree, validation_data))
-
-predicted %>% summarise(acc = sum(prediction == situacao_final)/nrow(predicted))
-
-
 ```
 
+Ficou evidente que aumentar o parâmetro de complexidade da árvore não nos ajudou a melhor a acurácia do nosso classificador. Uma vez que o melhor modelo obtido foi com parâmetro de complexidade = 0, obtendo em torno de 91% de Acurácia.
 
-Regressão Logística
+Vejamos agora quais as features que o nosso classificador considerou mais importantes:
+
+```{r}
+varImp(model.tree$finalModel) %>% mutate(feature = rownames(.)) %>% arrange(-Overall) %>% top_n(11)
+```
+
+Obtivemos um resultado interessante, nosso modelo considerou importante apenas variáveis relacionadas a verbas de campanha, sendo as váriáveis total_receita, total_despesa e quantidade_fornecedores as mais importantes. Outro detalhe interessante é que as variáveis novas que foram criadas a partir de outras ja existentes (iter_raca_sexo, mais.de.30, mais.de.40, mais.de.50, mais.de.60) foram ignoradas pelo classificador.
+
+Vejamos agora métricas de precision, recall e F-measure obtidas no treino:
 
 ```{r}
 
+train.data.prediction <- train_data %>% 
+  mutate(situacao_final = ifelse(situacao_final == 'eleito', 1, 0)) %>% 
+  mutate(prediction = predict(model.tree, train_data)) %>% 
+  mutate(prediction = ifelse(prediction == 'eleito', 1, 0))
+
+
+measurePrecisionRecall(train.data.prediction$prediction, train.data.prediction$situacao_final)
+
+```
+
+Vejamos agora métricas de precision, recall e F-measure obtidas na validação:
+
+```{r}
+
+validation.data.prediction <- validation_data %>% 
+  mutate(prediction = predict(model.tree, validation_data)) %>% 
+  mutate(situacao_final = ifelse(situacao_final == 'eleito', 1, 0)) %>% 
+  mutate(prediction = ifelse(prediction == 'eleito', 1, 0))
+
+measurePrecisionRecall(validation.data.prediction$prediction, validation.data.prediction$situacao_final)
+
+```
+
+Obtivemos métricas bastante semelhantes no treino e na validação do modelo de árvore de decisão, portanto muito provavelmente não sofreremos com problemas de overfitting com os dados de teste.
+
+<h4>Regressão Logística</h4>
+
+Foi treinado um modelo de regressão logística utilizando o pacote caret para realizar validação cruzada dos modelos obtidos. O modelo foi obtido utilizando todas as variáveis disponíveis (além das features adicionais que foram criadas) e utilizando também o parâmetro "search" no trainControl do caret que irá realizar uma busca aleatória pelas melhores features a serem utilizadas pelo classificador.
+
+```{r}
 
 train_control<- trainControl(method="repeatedcv", number=10, repeats=3, sampling = "up", search = "random")
 
@@ -73,39 +154,105 @@ model.glm <- caret::train(situacao_final ~.,
                        tuneLength = 10,
                        metric = "Accuracy",
                        method = "glm")
-
-plot(model.glm)
-model.glm
-
-
-predicted <- validation_data %>% mutate(prediction = predict(model.glm, validation_data))
-predicted %>% summarise(acc = sum(prediction == situacao_final)/nrow(predicted))
-
 ```
 
-Adaboost
 
+A acurácia obtida pelo modelo foi satisfatória, aproximando-se de 92%.
+
+```{r}
+model.glm
+```
+
+Vejamos agora a importância dada a cada feature pelo classificador:
+
+```{r}
+varImp(model.glm)
+```
+
+Diferentemente da árvore de decisão, a regressão logística considerou outras variáveis como mais importantes, tais como partido, estado civil, e até mesmo algumas das novas variáveis que foram criadas a partir de já existentes como mais.de.30 (Candidato possui mais de 30 anos de idade?) e a interação entre a raça e o sexo do candidato.
+
+
+Vejamos agora métricas de precision, recall e F-measure obtidas no treino:
+
+```{r}
+
+glm.train.data.predicted <- train_data %>% 
+  mutate(prediction = predict(model.glm, train_data)) %>%
+  mutate(prediction = ifelse(prediction == 'eleito', 1, 0)) %>% 
+  mutate(situacao_final = ifelse(situacao_final == 'eleito', 1, 0))
+
+measurePrecisionRecall(glm.train.data.predicted$prediction, glm.train.data.predicted$situacao_final)
+
+```
+Vejamos agora métricas de precision, recall e F-measure obtidas na validação:
+
+```{r}
+
+glm.validation.data.predicted <- validation_data %>% 
+  mutate(prediction = predict(model.glm, validation_data)) %>%
+  mutate(prediction = ifelse(prediction == 'eleito', 1, 0)) %>% 
+  mutate(situacao_final = ifelse(situacao_final == 'eleito', 1, 0))
+
+measurePrecisionRecall(glm.validation.data.predicted$prediction, glm.validation.data.predicted$situacao_final)
+
+```
+Novamente, devido ao uso de validação cruzada, obtivemos métricas semelhantes no treino e na validação. Afastando a possibilidade de overfitting.
+
+
+<h4>Adaboost</h4>
+
+Foi treinado um modelo adaboost utilizando o pacote caret para realizar validação cruzada dos modelos obtidos. O modelo foi obtido utilizando todas as variáveis disponíveis (além das features adicionais que foram criadas) e utilizando também o parâmetro "search" no trainControl do caret que irá realizar uma busca aleatória pelas melhores features a serem utilizadas pelo classificador.
 
 ```{r}
 train_control<- trainControl(method="cv", number=1,sampling = "up", search = "random")
 
-tuneGrid <- expand.grid(nIter = seq(100, 200, by = 20), method = c("Real adaboost", "Adaboost.M1"))
-
 model.ada <- caret::train(
                        x = train_data[!colnames(train_data) %in% c("situacao_final")], 
                        y = train_data$situacao_final,
-                       tuneGrid = tuneGrid,
                        metric = "Accuracy",
-                       method = "adaboost")
+                       method = "ada")
 
-plot(model.ada)
 model.ada
+```
+A acurácia do modelo adaboost foi a melhor do que todas as outras ténicas tentadas, se aproximando dos 93.5%.
 
 
-predicted <- validation_data %>% mutate(prediction = predict(model.ada, validation_data))
-predicted %>% summarise(acc = sum(prediction == situacao_final)/nrow(predicted))
+Vejamos o gráfico abaixo que sumariza o processo de Bootstrap aplicado pelo caret para o emsemble e obtenção do melhor modelo.
+
+```{r}
+plot(model.ada)
 ```
 
+Vejamos agora métricas de precision, recall e F-measure obtidas no treino:
+
+```{r}
+
+ada.train.data.predicted <- train_data %>% 
+  mutate(prediction = predict(model.ada, train_data)) %>%
+  mutate(prediction = ifelse(prediction == 'eleito', 1, 0)) %>% 
+  mutate(situacao_final = ifelse(situacao_final == 'eleito', 1, 0))
+
+measurePrecisionRecall(ada.train.data.predicted$prediction, ada.train.data.predicted$situacao_final)
+
+```
+
+Vejamos agora métricas de precision, recall e F-measure obtidas na validação:
+
+```{r}
+
+ada.validation.data.predicted <- validation_data %>% 
+  mutate(prediction = predict(model.ada, validation_data)) %>%
+  mutate(prediction = ifelse(prediction == 'eleito', 1, 0)) %>% 
+  mutate(situacao_final = ifelse(situacao_final == 'eleito', 1, 0))
+
+measurePrecisionRecall(ada.validation.data.predicted$prediction, ada.validation.data.predicted$situacao_final)
+
+```
+
+Mais uma vez obtivemos métricas semelhantes no treino e na validação, diminuindo a possibilidade de overfitting. Vale ainda salientar que a métrica precision da adaboost foi superior as outras técnicas, o recall porém foi o menor de todos.
+
+
+<h4>Submetendo ao kaggle o modelo gerado</h4>
 
 ```{r}
 submit_kaggle <- test_data %>% 
